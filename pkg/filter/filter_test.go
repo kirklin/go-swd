@@ -634,3 +634,64 @@ func TestFilter_ReplaceWithStrategyIn(t *testing.T) {
 		})
 	}
 }
+
+func TestFilter_Replace_OverlappingWords(t *testing.T) {
+	tests := []struct {
+		name    string
+		text    string
+		matches []core.SensitiveWord
+		want    string
+	}{
+		{
+			name: "Fully overlapping, should choose the longer word",
+			text: "abchello",
+			matches: []core.SensitiveWord{
+				{Word: "abc", StartPos: 0, EndPos: 3, Category: category.Discrimination},
+				{Word: "bc", StartPos: 1, EndPos: 3, Category: category.Discrimination},
+			},
+			want: "***hello",
+		},
+		{
+			name: "Partially overlapping",
+			text: "abcefg",
+			matches: []core.SensitiveWord{
+				{Word: "abc", StartPos: 0, EndPos: 3, Category: category.Discrimination},
+				{Word: "cefg", StartPos: 2, EndPos: 6, Category: category.Discrimination},
+			},
+			want: "***efg",
+		},
+		{
+			name: "Multiple overlapping matches, unsorted",
+			text: "abchello",
+			matches: []core.SensitiveWord{
+				{Word: "bc", StartPos: 1, EndPos: 3, Category: category.Discrimination},  // Shorter match first
+				{Word: "abc", StartPos: 0, EndPos: 3, Category: category.Discrimination}, // Longer match second
+			},
+			want: "***hello",
+		},
+		{
+			name: "Adjacent, non-overlapping",
+			text: "badword",
+			matches: []core.SensitiveWord{
+				{Word: "bad", StartPos: 0, EndPos: 3, Category: category.Discrimination},
+				{Word: "word", StartPos: 3, EndPos: 7, Category: category.Discrimination},
+			},
+			want: "*******",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			detector := &mockDetector{
+				matchAllFunc: func(text string) []core.SensitiveWord {
+					return tt.matches
+				},
+			}
+			f := NewFilter(detector)
+			got := f.Replace(tt.text, '*')
+			if got != tt.want {
+				t.Errorf("Replace() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

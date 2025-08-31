@@ -127,11 +127,23 @@ func (f *filter) replaceWords(text string, matches []core.SensitiveWord, strateg
 		return text
 	}
 
+	// 按照 StartPos 排序
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].StartPos == matches[j].StartPos {
+			return matches[i].EndPos > matches[j].EndPos
+		}
+		return matches[i].StartPos < matches[j].StartPos
+	})
+
 	runes := []rune(text)
 	result := make([]rune, 0, len(runes))
 	lastPos := 0
 
 	for _, match := range matches {
+		// 如果当前匹配的起始位置在上一个匹配的结束位置之前，说明是重叠词，跳过
+		if match.StartPos < lastPos {
+			continue
+		}
 		// 添加敏感词前的文本
 		result = append(result, runes[lastPos:match.StartPos]...)
 		// 添加替换后的文本
