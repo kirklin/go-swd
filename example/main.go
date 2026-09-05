@@ -1,3 +1,4 @@
+// Command example demonstrates the go-swd API.
 package main
 
 import (

@@ -1,0 +1,24 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test -run '^$' -bench . -benchmem -count 3 ./... | tee bench.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-${{ github.sha }}
+          path: bench.txt

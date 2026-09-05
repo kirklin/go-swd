@@ -4,6 +4,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/kirklin/go-swd.svg)](https://pkg.go.dev/github.com/kirklin/go-swd)
 [![CI](https://github.com/kirklin/go-swd/actions/workflows/ci.yml/badge.svg)](https://github.com/kirklin/go-swd/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/kirklin/go-swd/branch/main/graph/badge.svg)](https://codecov.io/gh/kirklin/go-swd)
 [![Go Report Card](https://goreportcard.com/badge/github.com/kirklin/go-swd)](https://goreportcard.com/report/github.com/kirklin/go-swd)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
@@ -126,6 +127,10 @@ type Match struct {
 
 - API 参考：[pkg.go.dev/github.com/kirklin/go-swd](https://pkg.go.dev/github.com/kirklin/go-swd)
 
+
+## 赞助
+
+如果这个项目对你有帮助，欢迎通过 [GitHub Sponsors](https://github.com/sponsors/kirklin)、[Patreon](https://www.patreon.com/kirklin) 或 [Buy Me a Coffee](https://www.buymeacoffee.com/linkirk) 支持。
 
 ## 许可证
 

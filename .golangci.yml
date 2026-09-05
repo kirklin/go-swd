@@ -1,0 +1,24 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - misspell
+    - nolintlint
+    - revive
+    - unconvert
+    - unparam
+  settings:
+    misspell:
+      locale: US
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

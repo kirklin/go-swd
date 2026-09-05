@@ -18,7 +18,7 @@ var (
 	sinkS       string
 )
 
-func setupBench(b *testing.B) {
+func setupBench() {
 	benchOnce.Do(func() {
 		var err error
 		if benchEngine, err = New(); err != nil {
@@ -41,7 +41,7 @@ func setupBench(b *testing.B) {
 }
 
 func benchEach(b *testing.B, fn func(text string)) {
-	setupBench(b)
+	setupBench()
 	for _, name := range benchNames {
 		text := benchTexts[name]
 		b.Run(name, func(b *testing.B) {
@@ -98,7 +98,7 @@ func BenchmarkGapDetect(b *testing.B) {
 }
 
 func BenchmarkAddRemoveWord(b *testing.B) {
-	setupBench(b)
+	setupBench()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		if err := benchEngine.AddWord("基准临时词", Custom); err != nil {

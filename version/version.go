@@ -1,3 +1,4 @@
+// Package version exposes the library version.
 package version
 
 // Version is the current version of the go-swd

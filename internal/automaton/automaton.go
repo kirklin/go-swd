@@ -575,7 +575,8 @@ func (m *Matcher) scan(text string, opt Options, fn func(Hit) bool, ring []uint3
 					matched = true
 				}
 			}
-			if matched {
+			switch {
+			case matched:
 				ring[cnt&ringMask] = uint32(off)
 				cnt++
 				gap = 0
@@ -596,13 +597,13 @@ func (m *Matcher) scan(text string, opt Options, fn func(Hit) bool, ring []uint3
 					}
 					x = nd.out
 				}
-			} else if gapMode && prev != 0 && opt.CollapseRepeats && c != 0 && c == prevCode {
+			case gapMode && prev != 0 && opt.CollapseRepeats && c != 0 && c == prevCode:
 				state = prev // repeated character: absorbed, no gap budget used
 				gap = 0
-			} else if gapMode && prev != 0 && v&flagSep != 0 && gap < opt.MaxGap {
+			case gapMode && prev != 0 && v&flagSep != 0 && gap < opt.MaxGap:
 				state = prev // separator inside a word: skipped
 				gap++
-			} else {
+			default:
 				state = 0
 				gap = 0
 			}
