@@ -1,3 +1,3 @@
 module github.com/kirklin/go-swd
 
-go 1.25.0
+go 1.23.0

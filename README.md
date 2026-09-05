@@ -16,7 +16,7 @@ go-swd 是一个 Go 语言的敏感词检测与过滤库。它基于 Aho-Corasic
 go get github.com/kirklin/go-swd
 ```
 
-需要 Go 1.25 或更高版本，无第三方依赖。
+需要 Go 1.23 或更高版本，无第三方依赖。
 
 ## 使用
 
