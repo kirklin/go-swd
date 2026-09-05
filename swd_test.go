@@ -46,19 +46,17 @@ func TestDefaultDictionary(t *testing.T) {
 	if m := e.MatchIn(text, Pornography); m == nil || m.Word != "裸聊" {
 		t.Fatalf("MatchIn = %+v", m)
 	}
-	if !e.DetectIn(text, Political) || !e.DetectIn(text, Pornography) || e.DetectIn(text, Gambling) {
+	if !e.DetectIn(text, Political) || !e.DetectIn(text, Pornography) || e.DetectIn(text, Contraband) {
 		t.Error("DetectIn category filter broken")
 	}
 	got := wordsOf(e.MatchAllIn(text, All))
 	if !strings.Contains(got, "裸聊") || !strings.Contains(got, "法轮功") {
 		t.Errorf("MatchAllIn(All) = %q", got)
 	}
-	// words from all.txt carry no category: found by Detect, not by *In
-	if !e.Detect("08宪章") {
-		t.Error("uncategorized word not detected")
-	}
-	if e.DetectIn("08宪章", All) {
-		t.Error("uncategorized word matched a category filter")
+	// Every dictionary word now carries a label, so DetectIn covers the
+	// whole dictionary.
+	if !e.Detect("08宪章") || !e.DetectIn("08宪章", All) {
+		t.Error("08宪章 not detected")
 	}
 	if e.Detect("今天天气不错，我们一起去公园散步。") {
 		t.Error("false positive on clean text")
@@ -66,24 +64,26 @@ func TestDefaultDictionary(t *testing.T) {
 }
 
 func TestDetectAndMatch(t *testing.T) {
-	e := newTest(t, map[string]Category{"敏感词": Custom, "感词": Political, "abc": Profanity, "b": Violence})
+	e := newTest(t, map[string]Category{"敏感词": Custom, "感词": Political, "abc": Inappropriate, "b": Violence})
 	text := "这是敏感词abc"
 	all := e.MatchAll(text)
 	want := []Match{
-		{"敏感词", 2, 5, 6, 15, Custom},
-		{"感词", 3, 5, 9, 15, Political},
-		{"b", 6, 7, 16, 17, Violence},
-		{"abc", 5, 8, 15, 18, Profanity},
+		{Word: "敏感词", Category: Custom, StartPos: 2, EndPos: 5, ByteStart: 6, ByteEnd: 15},
+		{Word: "感词", Category: Political, StartPos: 3, EndPos: 5, ByteStart: 9, ByteEnd: 15},
+		{Word: "b", Category: Violence, StartPos: 6, EndPos: 7, ByteStart: 16, ByteEnd: 17},
+		{Word: "abc", Category: Inappropriate, StartPos: 5, EndPos: 8, ByteStart: 15, ByteEnd: 18},
 	}
 	if len(all) != len(want) {
 		t.Fatalf("MatchAll = %+v", all)
 	}
 	for i := range want {
-		if all[i] != want[i] {
-			t.Errorf("MatchAll[%d] = %+v, want %+v", i, all[i], want[i])
+		g, w := all[i], want[i]
+		if g.Word != w.Word || g.Category != w.Category || g.StartPos != w.StartPos ||
+			g.EndPos != w.EndPos || g.ByteStart != w.ByteStart || g.ByteEnd != w.ByteEnd {
+			t.Errorf("MatchAll[%d] = %+v, want %+v", i, g, w)
 		}
 	}
-	if m := e.Match(text); m == nil || *m != want[0] {
+	if m := e.Match(text); m == nil || m.Word != want[0].Word {
 		t.Errorf("Match = %+v", m)
 	}
 	if m := e.MatchIn(text, Political); m == nil || m.Word != "感词" {
@@ -95,13 +95,13 @@ func TestDetectAndMatch(t *testing.T) {
 	if m := e.MatchIn(text); m != nil {
 		t.Errorf("MatchIn() = %+v", m)
 	}
-	if got := wordsOf(e.MatchAllIn(text, Violence|Profanity)); got != "b,abc" {
+	if got := wordsOf(e.MatchAllIn(text, Violence|Inappropriate)); got != "b,abc" {
 		t.Errorf("MatchAllIn = %q", got)
 	}
 	if got := wordsOf(e.MatchAllIn(text, Violence, Custom)); got != "敏感词,b" {
 		t.Errorf("MatchAllIn(two cats) = %q", got)
 	}
-	if e.DetectIn(text) || e.DetectIn(text, Gambling) || !e.DetectIn(text, Gambling, Custom) {
+	if e.DetectIn(text) || e.DetectIn(text, Contraband) || !e.DetectIn(text, Contraband, Custom) {
 		t.Error("DetectIn broken")
 	}
 	if e.Detect("") || e.MatchAll("") != nil || e.Match("") != nil {
@@ -113,21 +113,21 @@ func TestDetectAndMatch(t *testing.T) {
 }
 
 func TestFoldingThroughAPI(t *testing.T) {
-	e := newTest(t, map[string]Category{"FuCk": Profanity, "一夜情": Pornography})
+	e := newTest(t, map[string]Category{"FuCk": Inappropriate, "一夜情": Pornography})
 	for _, s := range []string{"fuck", "ＦＵＣＫ", "\U0001D41F\U0001D42E\U0001D41C\U0001D424", "f\u200buck", "1夜情", "①夜情", "壹夜情"} {
 		if !e.Detect(s) {
 			t.Errorf("Detect(%q) = false", s)
 		}
 	}
 	m := e.Match("xx ＦＵＣＫ yy")
-	want := Match{"FuCk", 3, 7, 3, 3 + len("ＦＵＣＫ"), Profanity}
-	if m == nil || *m != want {
-		t.Errorf("Match = %+v, want %+v", m, want)
+	if m == nil || m.Word != "FuCk" || m.StartPos != 3 || m.EndPos != 7 ||
+		m.ByteStart != 3 || m.ByteEnd != 3+len("ＦＵＣＫ") {
+		t.Errorf("Match = %+v", m)
 	}
 }
 
 func TestReplace(t *testing.T) {
-	e := newTest(t, map[string]Category{"敏感词": Custom, "感词": Political, "abc": Profanity, "b": Violence})
+	e := newTest(t, map[string]Category{"敏感词": Custom, "感词": Political, "abc": Inappropriate, "b": Violence})
 	text := "这是敏感词abc!"
 	if got := e.ReplaceWithAsterisk(text); got != "这是******!" {
 		t.Errorf("ReplaceWithAsterisk = %q", got)
@@ -149,7 +149,7 @@ func TestReplace(t *testing.T) {
 		seen = append(seen, fmt.Sprintf("%s:%d-%d", m.Word, m.StartPos, m.EndPos))
 		return "[" + m.Category.String() + "]"
 	}
-	if got := e.ReplaceWithStrategy(text, strategy); got != "这是[涉政|自定义][暴力|脏话]!" {
+	if got := e.ReplaceWithStrategy(text, strategy); got != "这是[涉政|自定义][暴恐|不良内容]!" {
 		t.Errorf("ReplaceWithStrategy = %q", got)
 	}
 	if strings.Join(seen, " ") != "敏感词:2-5 abc:5-8" {
@@ -205,10 +205,10 @@ func TestAddRemoveClear(t *testing.T) {
 	if err := e.RemoveWord("不存在"); err != nil {
 		t.Error(err)
 	}
-	if err := e.AddWords(map[string]Category{"甲": Drugs, "乙": Scam}); err != nil {
+	if err := e.AddWords(map[string]Category{"甲": Contraband, "乙": Contraband}); err != nil {
 		t.Fatal(err)
 	}
-	if e.Len() != 3 || !e.DetectIn("甲乙", Scam) {
+	if e.Len() != 3 || !e.DetectIn("甲乙", Contraband) {
 		t.Errorf("Len = %d", e.Len())
 	}
 	if err := e.Clear(); err != nil {
@@ -274,7 +274,7 @@ func TestAllowWords(t *testing.T) {
 }
 
 func TestGapOptions(t *testing.T) {
-	e := newTest(t, map[string]Category{"fuck": Profanity, "法轮功": Political}, WithMaxGap(1), WithCollapseRepeats(true))
+	e := newTest(t, map[string]Category{"fuck": Inappropriate, "法轮功": Political}, WithMaxGap(1), WithCollapseRepeats(true))
 	for _, s := range []string{"f*u*c*k", "法 轮 功", "fuuuck", "f u c k", "法🙂轮🙂功"} {
 		if !e.Detect(s) {
 			t.Errorf("Detect(%q) = false", s)
@@ -286,7 +286,7 @@ func TestGapOptions(t *testing.T) {
 	if got := e.ReplaceWithAsterisk("say f*u*c*k now"); got != "say ******* now" {
 		t.Errorf("Replace = %q", got)
 	}
-	exact := newTest(t, map[string]Category{"fuck": Profanity})
+	exact := newTest(t, map[string]Category{"fuck": Inappropriate})
 	if exact.Detect("f*u*c*k") || exact.Detect("fuuuck") {
 		t.Error("exact engine matched gapped text")
 	}
@@ -330,18 +330,20 @@ func TestMatchesIterator(t *testing.T) {
 
 func TestCategory(t *testing.T) {
 	cases := map[Category]string{
-		None: "未分类", Pornography: "涉黄", Custom: "自定义",
-		Pornography | Custom: "涉黄|自定义", Category(1): "未知(0x1)", All: "涉黄|涉政|暴力|赌博|毒品|脏话|歧视|诈骗|自定义",
+		None: "无风险", Pornography: "色情低俗", Custom: "自定义",
+		Pornography | Custom: "色情低俗|自定义",
+		All:                  "色情低俗|涉政|暴恐|违禁|不良内容|引流广告|宗教|广告法|AI生成|自定义",
+		UserCategory(0):      "自定义0",
 	}
 	for c, want := range cases {
 		if got := c.String(); got != want {
 			t.Errorf("%d.String() = %q, want %q", c, got, want)
 		}
 	}
-	if !All.Contains(Pornography|Scam) || Pornography.Contains(All) || Pornography.Contains(None) {
+	if !All.Contains(Pornography|Contraband) || Pornography.Contains(All) || Pornography.Contains(None) {
 		t.Error("Contains")
 	}
-	if !All.IsValid() || !None.IsValid() || Category(1).IsValid() || Category(1<<10).IsValid() {
+	if !All.IsValid() || !None.IsValid() || !UserCategory(20).IsValid() || Category(1).IsValid() {
 		t.Error("IsValid")
 	}
 }

@@ -9,87 +9,65 @@ import (
 )
 
 func main() {
-	// 1. 创建引擎（默认加载内置词库）
 	engine, err := swd.New()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// 2. 添加自定义敏感词；同一个词可以同时属于多个分类
-	customWords := map[string]swd.Category{
-		"涉黄":    swd.Pornography,
-		"涉政":    swd.Political,
-		"赌博词汇":  swd.Gambling,
-		"毒品词汇":  swd.Drugs,
-		"脏话词汇":  swd.Profanity,
-		"歧视词汇":  swd.Discrimination,
-		"诈骗词汇":  swd.Scam,
-		"自定义词汇": swd.Custom,
-		"多分类词汇": swd.Gambling | swd.Scam,
+	// 1. 整体判定：风险等级 + 处置建议 + 命中分类
+	for _, text := range []string{
+		"长期供应冰毒麻古，货到付款",
+		"你他妈的傻逼，去死吧",
+		"加我微信看福利，扫码进群",
+		"本品为国家级产品，包治百病",
+		"今天天气不错，我们一起去公园散步",
+	} {
+		r := engine.Check(text)
+		fmt.Printf("%-28s %-6s %-8s %s\n",
+			text, r.Risk, r.Suggestion(), r.Categories)
 	}
-	if err := engine.AddWords(customWords); err != nil {
+
+	// 2. 逐个命中：标签、分类、风险、置信度、位置
+	fmt.Println()
+	for _, m := range engine.Check("出售仿真手枪和子弹，加微信详聊").Matches {
+		fmt.Printf("  %-10s 标签=%-22s 分类=%-8s 风险=%-6s 置信=%3d 位置=%d-%d\n",
+			m.Word, m.Label, m.Category, m.Risk, m.Confidence, m.StartPos, m.EndPos)
+	}
+
+	// 3. 按一级分类过滤
+	fmt.Println()
+	text := "这段文本包含裸聊直播和网上赌场"
+	fmt.Println("含色情:", engine.DetectIn(text, swd.Pornography))
+	fmt.Println("含违禁:", engine.DetectIn(text, swd.Contraband))
+	fmt.Println("含涉政:", engine.DetectIn(text, swd.Political))
+
+	// 4. 只处理高风险，中风险转人工
+	fmt.Println()
+	if r := engine.Check(text); r.Risk >= swd.RiskHigh {
+		fmt.Println("直接拦截，主要原因:", r.Label.Chinese())
+	}
+
+	// 5. 自定义词：按标签加，继承该标签的分类与风险
+	if err := engine.AddLabeledWords(map[string]swd.Label{
+		"内部黑话甲": swd.ContrabandFraud,
+		"内部黑话乙": swd.PromotionToSites,
+	}); err != nil {
 		log.Fatal(err)
 	}
-
-	// 3. 基本检测
-	text := "这是一段包含敏感词涉黄和涉政的文本"
-	fmt.Println("是否包含敏感词:", engine.Detect(text))
-
-	// 4. 按分类检测
-	fmt.Println("是否包含涉黄内容:", engine.DetectIn(text, swd.Pornography))
-	fmt.Println("是否包含涉政内容:", engine.DetectIn(text, swd.Political))
-	fmt.Println("是否包含赌博内容:", engine.DetectIn(text, swd.Gambling))
-	fmt.Println("是否包含涉黄或涉政内容:", engine.DetectIn(text, swd.Pornography, swd.Political))
-	fmt.Println("是否包含任意预定义分类:", engine.DetectIn(text, swd.All))
-
-	// 5. 第一个命中（最早结束的那个）
-	if m := engine.Match(text); m != nil {
-		fmt.Printf("首个敏感词: %s (分类: %s)\n", m.Word, m.Category)
+	// 也可以按分类加，风险默认为高
+	if err := engine.AddWord("自定义词", swd.UserCategory(0)); err != nil {
+		log.Fatal(err)
 	}
+	fmt.Println("\n自定义分类命中:", engine.Check("这里有自定义词").Categories)
 
-	// 6. 全部命中，带 rune 下标和字节偏移
-	for _, m := range engine.MatchAll(text) {
-		fmt.Printf("敏感词: %s (分类: %s, 位置: %d-%d, 原文: %q)\n",
-			m.Word, m.Category, m.StartPos, m.EndPos, text[m.ByteStart:m.ByteEnd])
-	}
+	// 6. 替换
+	fmt.Println("\n星号替换:", engine.ReplaceWithAsterisk("这段文本包含裸聊直播"))
+	fmt.Println("按标签替换:", engine.ReplaceWithStrategy("这段文本包含裸聊直播",
+		func(m swd.Match) string { return "[" + m.Label.Chinese() + "]" }))
 
-	// 7. 迭代器：不分配结果切片，可随时 break
-	for m := range engine.Matches(text) {
-		fmt.Println("迭代到:", m.Word)
-		break
-	}
-
-	// 8. 替换
-	fmt.Println("星号替换:", engine.ReplaceWithAsterisk(text))
-	fmt.Println("按分类替换:", engine.ReplaceWithStrategy(text, func(m swd.Match) string {
-		return "[" + m.Category.String() + "]"
-	}))
-	fmt.Println("只替换涉政:", engine.ReplaceWithAsteriskIn(text, swd.Political))
-
-	// 9. 归一化是内建的：大小写、全半角、数字样式、不可见字符
-	_ = engine.AddWord("fuck", swd.Profanity)
-	fmt.Println("变体检测:", engine.Detect("ＦＵＣＫ"), engine.Detect("𝐟𝐮𝐜𝐤"), engine.Detect("f\u200buck"))
-
-	// 10. 白名单：落在允许短语内部的命中不再上报
-	_ = engine.AddWord("色情", swd.Pornography)
+	// 7. 白名单：落在允许短语内部的命中被抑制
 	_ = engine.AddAllowWords("特色情怀")
-	fmt.Println("白名单:", engine.Detect("特色情怀"), engine.Detect("特色情怀和色情"))
+	fmt.Println("\n白名单:", engine.Detect("特色情怀"), engine.Detect("特色情怀和色情片"))
 
-	// 11. 容忍分隔符和重复字符的实例
-	loose, err := swd.New(swd.WithoutDefaultDict(), swd.WithWords(customWords),
-		swd.WithMaxGap(1), swd.WithCollapseRepeats(true))
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("间隔匹配:", loose.Detect("涉*黄"), loose.ReplaceWithAsterisk("这里有涉 黄内容"))
-
-	// 12. 移除与清空
-	if err := engine.RemoveWord("自定义词汇"); err != nil {
-		log.Printf("移除敏感词失败: %v", err)
-	}
-	fmt.Println("词数:", engine.Len())
-	if err := engine.Clear(); err != nil {
-		log.Printf("清空词库失败: %v", err)
-	}
-	fmt.Println("清空后:", engine.Detect(text), engine.Len())
+	fmt.Printf("\n词库规模: %+v\n", engine.Stats())
 }

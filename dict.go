@@ -1,50 +1,50 @@
 package swd
 
 import (
-	_ "embed"
+	"embed"
+	"path"
 	"strings"
 )
 
-//go:embed dict/pornography.txt
-var dictPornography string
+// dictFS holds the built-in dictionary. Every file is named after the Label
+// its words carry, so the taxonomy lives in the file layout: adding a file
+// named after a label is all it takes to extend the dictionary.
+//
+//go:embed dict/*.txt
+var dictFS embed.FS
 
-//go:embed dict/political.txt
-var dictPolitical string
+// entry is one dictionary word together with the label it was loaded under.
+type entry struct {
+	word  string
+	label Label
+}
 
-//go:embed dict/violence.txt
-var dictViolence string
-
-//go:embed dict/gambling.txt
-var dictGambling string
-
-//go:embed dict/drugs.txt
-var dictDrugs string
-
-//go:embed dict/profanity.txt
-var dictProfanity string
-
-//go:embed dict/discrimination.txt
-var dictDiscrimination string
-
-//go:embed dict/scam.txt
-var dictScam string
-
-//go:embed dict/all.txt
-var dictAll string
-
-var defaultDict = [...]struct {
-	data string
-	cat  Category
-}{
-	{dictPornography, Pornography},
-	{dictPolitical, Political},
-	{dictViolence, Violence},
-	{dictGambling, Gambling},
-	{dictDrugs, Drugs},
-	{dictProfanity, Profanity},
-	{dictDiscrimination, Discrimination},
-	{dictScam, Scam},
-	{dictAll, None},
+// defaultDict reads the embedded dictionary. Files whose name does not match
+// a known label are ignored, so an unknown file can never silently become an
+// uncategorised word.
+func defaultDict() ([]entry, error) {
+	files, err := dictFS.ReadDir("dict")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]entry, 0, 1<<14)
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".txt") {
+			continue
+		}
+		label, ok := labelByName[strings.TrimSuffix(f.Name(), ".txt")]
+		if !ok {
+			continue
+		}
+		data, err := dictFS.ReadFile(path.Join("dict", f.Name()))
+		if err != nil {
+			return nil, err
+		}
+		parseLines(string(data), func(w string) {
+			out = append(out, entry{w, label})
+		})
+	}
+	return out, nil
 }
 
 // parseLines calls fn for every non-empty, non-comment line of data.

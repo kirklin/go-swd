@@ -5,6 +5,7 @@ import "sort"
 type config struct {
 	defaultDict bool
 	words       map[string]Category
+	labeled     map[string]Label
 	allow       []string
 	maxGap      int
 	collapse    bool
@@ -27,6 +28,22 @@ func WithWords(words map[string]Category) Option {
 		}
 		for w, cat := range words {
 			c.words[w] |= cat
+		}
+	}
+}
+
+// WithLabeledWords adds words under a second-level label. The label decides
+// the word's category, risk level and base confidence, so results look the
+// same as those from the built-in dictionary.
+func WithLabeledWords(words map[string]Label) Option {
+	return func(c *config) {
+		if c.labeled == nil {
+			c.labeled = map[string]Label{}
+		}
+		for w, l := range words {
+			if l.Risk() > c.labeled[w].Risk() {
+				c.labeled[w] = l
+			}
 		}
 	}
 }
@@ -62,6 +79,15 @@ func WithCollapseRepeats(on bool) Option {
 }
 
 func sortedKeys(m map[string]Category) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedLabelKeys(m map[string]Label) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)

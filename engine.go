@@ -27,13 +27,38 @@ var (
 // ByteEnd are byte offsets into the text. The span covers the original
 // characters, including any separators skipped in gap mode.
 type Match struct {
-	Word      string   // the dictionary word, in its original spelling
-	StartPos  int      // rune index of the first character
-	EndPos    int      // rune index one past the last character
-	ByteStart int      // byte offset of the first character
-	ByteEnd   int      // byte offset one past the last character
-	Category  Category // categories of the word
+	Word       string   // the dictionary word, in its original spelling
+	Label      Label    // second-level label, e.g. PornographicAdult
+	Category   Category // first-level categories of the word
+	Risk       Risk     // how this match should be handled
+	Confidence uint8    // 0-100, how reliably the word indicates a violation
+	StartPos   int      // rune index of the first character
+	EndPos     int      // rune index one past the last character
+	ByteStart  int      // byte offset of the first character
+	ByteEnd    int      // byte offset one past the last character
 }
+
+// Result is the verdict for a whole text.
+type Result struct {
+	// Risk is the highest risk among the matches, and drives the handling
+	// decision. Use Risk.Suggestion for the pass/review/block advice.
+	Risk Risk
+	// Categories is every first-level category the text hit.
+	Categories Category
+	// Label is the label of the highest-risk, highest-confidence match, and
+	// Confidence is that match's confidence. They are the "primary reason"
+	// the text was flagged.
+	Label      Label
+	Confidence uint8
+	// Matches lists every hit, in the order they end in the text.
+	Matches []Match
+}
+
+// Hit reports whether anything was detected at all.
+func (r Result) Hit() bool { return len(r.Matches) > 0 }
+
+// Suggestion returns "pass", "review" or "block".
+func (r Result) Suggestion() string { return r.Risk.Suggestion() }
 
 // SensitiveWord is the former name of Match.
 type SensitiveWord = Match
@@ -42,17 +67,31 @@ type SensitiveWord = Match
 // queries never block, and every update builds a new automaton and swaps it
 // in atomically.
 type Engine struct {
-	matcher atomic.Pointer[automaton.Matcher]
-	allow   atomic.Pointer[automaton.Matcher]
+	compiled atomic.Pointer[compiled]
+	allow    atomic.Pointer[automaton.Matcher]
 
 	mu       sync.Mutex // guards the fields below and serializes rebuilds
 	list     []automaton.Word
+	labels   []Label // parallel to list
 	index    map[string]int32
 	dead     int
 	allowSet map[string]struct{}
 
 	maxGap   int
 	collapse bool
+}
+
+// compiled is an immutable automaton together with the per-word metadata the
+// automaton itself does not carry. meta is indexed by automaton word id.
+type compiled struct {
+	m    *automaton.Matcher
+	meta []wordMeta
+}
+
+type wordMeta struct {
+	label Label
+	risk  Risk
+	conf  uint8
 }
 
 // SWD is the former name of Engine.
@@ -74,21 +113,32 @@ func New(opts ...Option) (*Engine, error) {
 		collapse: cfg.collapse,
 	}
 	if cfg.defaultDict {
-		for _, d := range defaultDict {
-			cat := d.cat
-			parseLines(d.data, func(w string) { e.addLocked(w, cat) })
+		entries, err := defaultDict()
+		if err != nil {
+			return nil, err
+		}
+		for _, en := range entries {
+			e.addLocked(en.word, en.label.Category(), en.label)
 		}
 	}
 	for _, w := range sortedKeys(cfg.words) {
-		cat := cfg.words[w]
 		nw, err := normWord(w)
 		if err != nil {
 			return nil, err
 		}
+		cat := cfg.words[w]
 		if !cat.IsValid() {
 			return nil, fmt.Errorf("%w: %d", ErrInvalidCategory, uint32(cat))
 		}
-		e.addLocked(nw, cat)
+		e.addLocked(nw, cat, Customized)
+	}
+	for _, w := range sortedLabelKeys(cfg.labeled) {
+		nw, err := normWord(w)
+		if err != nil {
+			return nil, err
+		}
+		l := cfg.labeled[w]
+		e.addLocked(nw, l.Category(), l)
 	}
 	for _, w := range cfg.allow {
 		if w = strings.TrimSpace(w); w != "" {
@@ -115,14 +165,20 @@ func normWord(w string) (string, error) {
 	return w, nil
 }
 
-// addLocked records w with cat (OR-ed into an existing entry). Caller holds mu.
-func (e *Engine) addLocked(w string, cat Category) {
+// addLocked records w with cat and label. Adding a word that is already
+// present merges the categories and keeps whichever label carries the higher
+// risk, so a word listed under two labels is reported at its worst.
+func (e *Engine) addLocked(w string, cat Category, label Label) {
 	if i, ok := e.index[w]; ok {
 		e.list[i].Payload |= uint32(cat)
+		if label.Risk() > e.labels[i].Risk() {
+			e.labels[i] = label
+		}
 		return
 	}
 	e.index[w] = int32(len(e.list))
 	e.list = append(e.list, automaton.Word{Text: w, Payload: uint32(cat)})
+	e.labels = append(e.labels, label)
 }
 
 // removeLocked deletes w. Caller holds mu.
@@ -133,16 +189,19 @@ func (e *Engine) removeLocked(w string) bool {
 	}
 	delete(e.index, w)
 	e.list[i] = automaton.Word{}
+	e.labels[i] = LabelNone
 	e.dead++
 	if e.dead > 64 && e.dead > len(e.list)/4 {
 		live := make([]automaton.Word, 0, len(e.list)-e.dead)
-		for _, w := range e.list {
+		labels := make([]Label, 0, len(e.list)-e.dead)
+		for j, w := range e.list {
 			if w.Text != "" {
 				e.index[w.Text] = int32(len(live))
 				live = append(live, w)
+				labels = append(labels, e.labels[j])
 			}
 		}
-		e.list, e.dead = live, 0
+		e.list, e.labels, e.dead = live, labels, 0
 	}
 	return true
 }
@@ -153,7 +212,25 @@ func (e *Engine) rebuild() error {
 	if err != nil {
 		return err
 	}
-	e.matcher.Store(m)
+	// Build merges words that fold to the same characters, so the
+	// automaton's word order is its own. Map it back by text.
+	byText := make(map[string]Label, len(e.list))
+	for i, w := range e.list {
+		if w.Text != "" {
+			byText[w.Text] = e.labels[i]
+		}
+	}
+	words := m.Words()
+	meta := make([]wordMeta, len(words))
+	for i, w := range words {
+		l := byText[w.Text]
+		meta[i] = wordMeta{
+			label: l,
+			risk:  l.Risk(),
+			conf:  confidenceOf(l, utf8.RuneCountInString(w.Text)),
+		}
+	}
+	e.compiled.Store(&compiled{m: m, meta: meta})
 	return nil
 }
 
@@ -225,25 +302,64 @@ func covered(spans []span, start, end int) bool {
 
 // each calls fn for every match of the current automaton. mask 0 = all words.
 func (e *Engine) each(text string, mask Category, fn func(Match) bool) {
-	m := e.matcher.Load()
-	if m == nil || text == "" {
+	c := e.compiled.Load()
+	if c == nil || text == "" {
 		return
 	}
 	spans := e.allowSpans(text)
-	m.Scan(text, e.options(mask), func(h automaton.Hit) bool {
+	c.m.Scan(text, e.options(mask), func(h automaton.Hit) bool {
 		if spans != nil && covered(spans, h.StartRune, h.EndRune) {
 			return true
 		}
-		w := m.Word(h.Word)
+		w := c.m.Word(h.Word)
+		md := c.meta[h.Word]
 		return fn(Match{
-			Word:      w.Text,
-			StartPos:  h.StartRune,
-			EndPos:    h.EndRune,
-			ByteStart: h.StartByte,
-			ByteEnd:   h.EndByte,
-			Category:  Category(w.Payload),
+			Word:       w.Text,
+			Label:      md.label,
+			Category:   Category(w.Payload),
+			Risk:       md.risk,
+			Confidence: md.conf,
+			StartPos:   h.StartRune,
+			EndPos:     h.EndRune,
+			ByteStart:  h.StartByte,
+			ByteEnd:    h.EndByte,
 		})
 	})
+}
+
+// Check returns the verdict for a whole text: the highest risk found, every
+// category hit, the label that drove the decision, and all matches.
+//
+//	r := engine.Check(text)
+//	switch r.Suggestion() {
+//	case "block":  // 高风险，直接拦截
+//	case "review": // 中风险，转人工复审
+//	default:       // 放行
+//	}
+func (e *Engine) Check(text string) Result {
+	return e.check(text, 0)
+}
+
+// CheckIn is Check restricted to the given categories.
+func (e *Engine) CheckIn(text string, categories ...Category) Result {
+	mask := orCategories(categories)
+	if mask == 0 {
+		return Result{}
+	}
+	return e.check(text, mask)
+}
+
+func (e *Engine) check(text string, mask Category) Result {
+	var r Result
+	e.each(text, mask, func(m Match) bool {
+		r.Matches = append(r.Matches, m)
+		r.Categories |= m.Category
+		if m.Risk > r.Risk || (m.Risk == r.Risk && m.Confidence > r.Confidence) {
+			r.Risk, r.Label, r.Confidence = m.Risk, m.Label, m.Confidence
+		}
+		return true
+	})
+	return r
 }
 
 func (e *Engine) detect(text string, mask Category) bool {
@@ -331,6 +447,38 @@ func (e *Engine) AddWord(word string, category Category) error {
 	return e.AddWords(map[string]Category{word: category})
 }
 
+// AddLabeledWord adds a word under a second-level label, which decides its
+// category, risk and confidence.
+func (e *Engine) AddLabeledWord(word string, label Label) error {
+	return e.AddLabeledWords(map[string]Label{word: label})
+}
+
+// AddLabeledWords adds many labeled words with a single rebuild.
+func (e *Engine) AddLabeledWords(words map[string]Label) error {
+	type item struct {
+		w string
+		l Label
+	}
+	items := make([]item, 0, len(words))
+	for w, l := range words {
+		nw, err := normWord(w)
+		if err != nil {
+			return err
+		}
+		items = append(items, item{nw, l})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	slices.SortFunc(items, func(a, b item) int { return strings.Compare(a.w, b.w) })
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, it := range items {
+		e.addLocked(it.w, it.l.Category(), it.l)
+	}
+	return e.rebuild()
+}
+
 // AddWords adds many words with a single rebuild.
 func (e *Engine) AddWords(words map[string]Category) error {
 	type item struct {
@@ -355,7 +503,7 @@ func (e *Engine) AddWords(words map[string]Category) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, it := range items {
-		e.addLocked(it.w, it.c)
+		e.addLocked(it.w, it.c, Customized)
 	}
 	return e.rebuild()
 }
@@ -458,8 +606,8 @@ type Stats struct {
 // Stats returns size information about the current automaton.
 func (e *Engine) Stats() Stats {
 	var s Stats
-	if m := e.matcher.Load(); m != nil {
-		st := m.Stats()
+	if c := e.compiled.Load(); c != nil {
+		st := c.m.Stats()
 		s.Words, s.Nodes, s.Alphabet, s.Bytes = st.Words, st.Nodes, st.Alphabet, st.Bytes
 	}
 	if am := e.allow.Load(); am != nil {

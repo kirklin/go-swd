@@ -18,8 +18,14 @@
 //	if err != nil {
 //		log.Fatal(err)
 //	}
+//	engine.Check("...")                // risk level, categories and matches
 //	engine.Detect("...")               // any sensitive word?
-//	engine.MatchAll("...")             // every match with positions and category
+//	engine.MatchAll("...")             // every match with position, label and risk
 //	engine.ReplaceWithAsterisk("...")  // mask matches with *
-//	engine.AddWords(map[string]swd.Category{"自定义词": swd.Custom})
+//	engine.AddLabeledWord("自定义词", swd.ContrabandFraud)
+//
+// Words are classified in two levels. Category is the first level and holds
+// ten values; Label is the second level and decides a word's category, its
+// default Risk and its base confidence. Risk has four states, so a caller
+// can block, queue for review, or pass.
 package swd
