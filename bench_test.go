@@ -29,7 +29,7 @@ func setupBench() {
 		}
 		var words []string
 		parseLines(dictAll, func(w string) { words = append(words, w) })
-		w1, w2, w3 := words[1000], words[20000], words[30000]
+		w1, w2, w3 := words[1000], words[3000], words[5000]
 		clean := "今天天气不错，我们一起去公园散步，然后回家吃饭看书，晚上早点休息。"
 		hit := "这是一段普通的测试文本，" + w1 + "，中间还有一些别的内容，" + w2 + "以及" + w3 + "。结束。"
 		benchTexts["clean"] = clean

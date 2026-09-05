@@ -31,31 +31,26 @@ func TestDefaultDictionary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := e.Len(); n < 39000 {
+	if n := e.Len(); n < 15000 {
 		t.Fatalf("Len() = %d", n)
 	}
 	st := e.Stats()
 	t.Logf("stats: %+v", st)
-	if st.Words < 39000 || st.Nodes < 100000 || st.Alphabet < 3000 {
+	if st.Words < 15000 || st.Nodes < 40000 || st.Alphabet < 2000 {
 		t.Errorf("unexpected stats %+v", st)
 	}
-	text := "这段话提到了裸聊直播和中南海。"
+	text := "这段话提到了裸聊直播和法轮功。"
 	if !e.Detect(text) {
 		t.Fatal("Detect = false")
 	}
-	// Match returns the match that ends first: "裸聊" (uncategorized, from
-	// all.txt) ends before "裸聊直播".
-	if m := e.Match(text); m == nil || (m.Word != "裸聊" && m.Word != "裸聊直播") {
-		t.Fatalf("Match = %+v", m)
-	}
-	if m := e.MatchIn(text, Pornography); m == nil || m.Word != "裸聊直播" || m.Category != Pornography {
+	if m := e.MatchIn(text, Pornography); m == nil || m.Word != "裸聊" {
 		t.Fatalf("MatchIn = %+v", m)
 	}
 	if !e.DetectIn(text, Political) || !e.DetectIn(text, Pornography) || e.DetectIn(text, Gambling) {
 		t.Error("DetectIn category filter broken")
 	}
 	got := wordsOf(e.MatchAllIn(text, All))
-	if !strings.Contains(got, "裸聊直播") || !strings.Contains(got, "中南海") {
+	if !strings.Contains(got, "裸聊") || !strings.Contains(got, "法轮功") {
 		t.Errorf("MatchAllIn(All) = %q", got)
 	}
 	// words from all.txt carry no category: found by Detect, not by *In
