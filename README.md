@@ -32,6 +32,8 @@ engine.MatchAll(text)            // 全部命中，含位置、标签、风险�
 engine.ReplaceWithAsterisk(text) // 用 * 遮盖命中
 ```
 
+![整体判定](./README.assets/feature-check.png)
+
 ### 整体判定
 
 `Check` 返回整段文本的判定：风险等级、处置建议、命中的一级分类，以及触发判定的主要标签。
@@ -47,6 +49,8 @@ fmt.Println(r.Risk, r.Categories, r.Label.Chinese(), r.Confidence)
 ```
 
 风险分四态：`RiskHigh` 建议拦截、`RiskMedium` 建议人工复审、`RiskLow` 仅在高召回场景处理、`RiskNone` 无风险。
+
+![自定义词库](./README.assets/feature-custom.png)
 
 ### 自定义词库
 
@@ -68,6 +72,8 @@ err = engine.RemoveWord("示例词")
 ```
 
 不加载内置词库：`swd.New(swd.WithoutDefaultDict())`。批量修改使用 `AddWords` 和 `RemoveWords`。
+
+![按分类](./README.assets/feature-category.png)
 
 ### 按分类
 
@@ -99,6 +105,8 @@ engine.CheckIn(text, swd.Promotion) // 只看引流广告的判定
 
 分类为位掩码，一个词可以同时属于多个分类，`All` 为全部预定义分类。
 
+![替换](./README.assets/feature-replace.png)
+
 ### 替换
 
 ```go
@@ -109,6 +117,8 @@ engine.ReplaceWithStrategy(text, func(m swd.Match) string {
 ```
 
 重叠的命中会先合并为一个区间再替换。
+
+![字符归一化](./README.assets/feature-normalize.png)
 
 ### 字符归一化
 
@@ -130,6 +140,8 @@ swd.New(swd.WithMaxGap(1))             // 容忍词内的分隔符：f*u*c*k、�
 swd.New(swd.WithCollapseRepeats(true)) // 折叠重复字符：fuuuck
 ```
 
+![白名单](./README.assets/feature-allow.png)
+
 ### 白名单
 
 ```go
@@ -138,6 +150,8 @@ engine.Detect("特色情怀") // false：落在允许短语内部的命中被抑
 ```
 
 运行期使用 `AddAllowWords` 和 `RemoveAllowWords` 调整。
+
+![命中结果](./README.assets/feature-match.png)
 
 ### 命中结果
 
