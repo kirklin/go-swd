@@ -7,7 +7,7 @@
 [![codecov](https://codecov.io/gh/kirklin/go-swd/branch/main/graph/badge.svg)](https://codecov.io/gh/kirklin/go-swd)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-go-swd 是一个 Go 语言的敏感词检测与过滤库。它基于 Aho-Corasick 自动机，内置约四万词的中文词库，支持自定义词库、按分类过滤、白名单、文本替换，以及大小写、全半角、数字样式等字符变体的自动归一。
+go-swd 是一个 Go 语言的敏感词检测与过滤库。它基于 Aho-Corasick 自动机，内置约一万六千词的中文词库，支持自定义词库、按分类过滤、白名单、文本替换，以及大小写、全半角、数字样式等字符变体的自动归一。
 
 ## 安装
 
